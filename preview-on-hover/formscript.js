@@ -58,7 +58,7 @@ var PreviewOnHover = {
 
                 // field type - only supporting primaryfield for now and not lookup
                 if (target.attr("id").split("_")[1] == "primaryField") {
-                    
+
                     var controlname = $($(selector).parents(".ms-crm-ListControl-Ex-Lite")[0]).attr("id");
                     var gridControl = Xrm.Page.ui.controls.get(controlname);
                     var entityType = gridControl.getEntityName();
@@ -96,7 +96,7 @@ var PreviewOnHover = {
         // check if entityMetadata already exists
         PreviewOnHover.getEntityMetadataFromCache(entityType)
             .then(function (entityMetadata) {
-                return PreviewOnHover.buildEntityQuery(entityMetadata);
+                return PreviewOnHover.buildEntityExpandQuery(entityMetadata);
             })
             .then(function (entityMetadata) {
 
@@ -224,7 +224,7 @@ var PreviewOnHover = {
         return deferred.promise();
     },
 
-    buildEntityQuery: function (entityMetadata) {
+    buildEntityExpandQuery: function (entityMetadata) {
         var deferred = $.Deferred();
         var requests = Array();
 
@@ -686,7 +686,7 @@ var PreviewOnHover = {
             var result = "<td class='control'>";
 
             if (jsonObj.control && jsonObj.control._datafieldname) {
-                PreviewOnHover.formEngine.buildDotTemplateFieldAndQuery(jsonObj.control._datafieldname, entityType)
+                PreviewOnHover.formEngine.addFieldToTemplateAndExpand(jsonObj.control._datafieldname, entityType)
                     .then(function (string) {
                         result += string;
                         result += "</td>"
@@ -732,7 +732,7 @@ var PreviewOnHover = {
             return deferred.promise();
         },
 
-        buildDotTemplateFieldAndQuery: function (fieldname, entityType) {
+        addFieldToTemplateAndExpand: function (fieldname, entityType) {
             var deferred = $.Deferred();
 
             var entityMetadata = PreviewOnHover.Cache.get(entityType);
@@ -747,48 +747,48 @@ var PreviewOnHover = {
                     .then(function () {
                         return PreviewOnHover.addToQueryExpandItems("owningteam", attribute.AttributeType, "team", entityType);
                     }).then(function () {
-                        result = "{{?it.owninguser}} {{=it.owninguser.fullname}} {{?}}"
-                            + "{{?it.owningteam}} {{=it.owningteam.name}} {{?}}";
+                        result = "{{?it.owninguser}}"
+                            + "<a href='" + PreviewOnHover.organizationURI + "/main.aspx?etn=systemuser&id={{=it.owninguser.ownerid}}&pagetype=entityrecord' target='_blank'>{{=it.owninguser.fullname}}</a>"
+                            + "{{?}}"
+                            + "{{?it.owningteam}}"
+                            + "{{=it.owningteam.name}}"
+                            + "<a href='" + PreviewOnHover.organizationURI + "/main.aspx?etn=team&id={{=it.owningteam.teamid}}&pagetype=entityrecord' target='_blank'>{{=it.owningteam.name}}</a>"
+                            + "{{?}}";
                         deferred.resolve(result);
                     })
 
             } else if (attribute.AttributeType == "Customer") {
-
-                PreviewOnHover.addToQueryExpandItems("parentcustomerid_account", attribute.AttributeType, "account", entityType)
+                PreviewOnHover.addToQueryExpandItems(fieldname + "_account", attribute.AttributeType, "account", entityType)
                     .then(function () {
-                        return PreviewOnHover.addToQueryExpandItems("parentcustomerid_contact", attribute.AttributeType, "contact", entityType);
+                        return PreviewOnHover.addToQueryExpandItems(fieldname + "_contact", attribute.AttributeType, "contact", entityType);
                     }).then(function () {
-                        result = "{{?it.parentcustomerid_account}} {{=it.parentcustomerid_account.name}} {{?}}"
-                            + "{{?it.parentcustomerid_contact}} {{=it.parentcustomerid_contact.fullname}} {{?}}";
+                        result = "{{?it." + fieldname + "_account}}"
+                            + "<a href='" + PreviewOnHover.organizationURI + "/main.aspx?etn=account&id={{=it." + fieldname + "_account.accountid}}&pagetype=entityrecord' target='_blank'>{{=it." + fieldname + "_account.name}}</a>"
+                            + "{{?}}"
+                            + "{{?it." + fieldname + "_contact}}"
+                            + "<a href='" + PreviewOnHover.organizationURI + "/main.aspx?etn=contact&id={{=it." + fieldname + "_contact.contactid}}&pagetype=entityrecord' target='_blank'>{{=it." + fieldname + "_contact.fullname}}</a>"
+                            + "{{?}}";
                         deferred.resolve(result);
                     });
 
                 // type = "lookup" ==> field + ###NEED TO FIND the LOOKUP TYPE=Target ... and LOOKUP PRIMARYNAME  
             } else if (attribute.AttributeType == "Lookup") {
-                PreviewOnHover.addToQueryExpandItems(attribute.LogicalName, attribute.AttributeType, attribute.Targets[0], entityType)
+                PreviewOnHover.addToQueryExpandItems(fieldname, attribute.AttributeType, attribute.Targets[0], entityType)
                     .then(function () {
-                        // building link
-                      /*  var linkProps = [Xrm.Page.context.getClientUrl() + "/main.aspx"];
-                        linkProps.push("?etn=" + params.entityname.value);
-                        linkProps.push("&id=" + params.recordid.value);
-                        linkProps.push("&pagetype=entityrecord");
-                        window.open(linkProps.join(""), '_blank');
-                        */
-
-
+                        return PreviewOnHover.getPrimaryNameAttribute(attribute.Targets[0], fieldname)
+                    })
+                    .then(function (fielddata) {
                         // adding to template
-                        result = "{{?it.primarycontactid}} {{=it.primarycontactid.fullname}} {{?}}";
+                        result = "{{?it." + fieldname + "}}"
+                            + "<a href='" + PreviewOnHover.organizationURI + "/main.aspx?etn=" + fielddata.entityType + "&id={{=it." + fieldname + "." + fielddata.PrimaryIdAttribute + "}}&pagetype=entityrecord' target='_blank'>{{=it." + fieldname + "." + fielddata.PrimaryNameAttribute + "}}</a>"
+                            + "{{?}}";
                         deferred.resolve(result);
                     });
 
             } else {
-                // no need to add to query items
-                PreviewOnHover.addToQueryExpandItems(attribute.LogicalName, attribute.AttributeType, "", entityType)
-                    .then(function () {
-                        result = "{{=it." + fieldname + "}}";
-                        deferred.resolve(result);
-                    });
-
+                // no need to add to expand query items
+                result = "{{=it." + fieldname + "}}";
+                deferred.resolve(result);
             }
 
             return deferred.promise();
@@ -820,6 +820,7 @@ var PreviewOnHover = {
                     entityMetadata: entityMetadata,
                     entityType: entityType,
                     PrimaryNameAttribute: entityMetadata.PrimaryNameAttribute,
+                    PrimaryIdAttribute: entityMetadata.PrimaryIdAttribute,
                     fieldname: fieldname
                 });
             });
