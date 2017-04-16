@@ -1,18 +1,15 @@
 {
     "manifest_version": 2,
-    "name": "Dynamics Preview On Hover",
+    "name": "Dynamics 365 Preview On Hover",
     "version": "0.1",
     "content_scripts": [
         {
             "all_frames": true,
-            "css": [
-                "preview-on-hover/style.css"
-            ],
             "matches": [
                 "https://*.dynamics.com/*"
             ],
             "js": [
-                "js/content.js"
+                "content.js"
             ],
             "run_at": "document_end"
         }

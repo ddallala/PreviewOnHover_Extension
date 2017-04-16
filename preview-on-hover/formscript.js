@@ -767,6 +767,16 @@ var PreviewOnHover = {
             } else if (attribute.AttributeType == "Lookup") {
                 PreviewOnHover.addToQueryExpandItems(attribute.LogicalName, attribute.AttributeType, attribute.Targets[0], entityType)
                     .then(function () {
+                        // building link
+                      /*  var linkProps = [Xrm.Page.context.getClientUrl() + "/main.aspx"];
+                        linkProps.push("?etn=" + params.entityname.value);
+                        linkProps.push("&id=" + params.recordid.value);
+                        linkProps.push("&pagetype=entityrecord");
+                        window.open(linkProps.join(""), '_blank');
+                        */
+
+
+                        // adding to template
                         result = "{{?it.primarycontactid}} {{=it.primarycontactid.fullname}} {{?}}";
                         deferred.resolve(result);
                     });

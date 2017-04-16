@@ -5,10 +5,6 @@
     cssRef.setAttribute('type', 'text/css');
     cssRef.setAttribute('src', chrome.extension.getURL("preview-on-hover/style.css"));
 
-    var scriptTag = document.createElement('script');
-    scriptTag.setAttribute('type', 'text/javascript');
-    scriptTag.setAttribute('src', chrome.extension.getURL("preview-on-hover/mainscript.js"));
-
     var formscriptTag = document.createElement('script');
     formscriptTag.setAttribute('type', 'text/javascript');
     formscriptTag.setAttribute('src', chrome.extension.getURL("preview-on-hover/formscript.js"));
@@ -33,7 +29,7 @@
         // WEbUI Popover
         var popoverTag = document.createElement('script');
         popoverTag.setAttribute('type', 'text/javascript');
-        popoverTag.setAttribute('src', chrome.extension.getURL("preview-on-hover/jquery.webui-popover.js"));
+        popoverTag.setAttribute('src', chrome.extension.getURL("preview-on-hover/js/jquery.webui-popover.js"));
 
         var popoverCSSTag = document.createElement('link');
         popoverCSSTag.setAttribute('rel', 'stylesheet');
@@ -42,7 +38,7 @@
         // XML2JSON
         var xml2jsonTag = document.createElement('script');
         xml2jsonTag.setAttribute('type', 'text/javascript');
-        xml2jsonTag.setAttribute('src', chrome.extension.getURL("preview-on-hover/xml2json.js"));
+        xml2jsonTag.setAttribute('src', chrome.extension.getURL("preview-on-hover/js/xml2json.js"));
 
         // injecting tags
         formBody[0].appendChild(popoverTag);
