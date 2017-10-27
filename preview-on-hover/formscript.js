@@ -672,7 +672,6 @@ var PreviewOnHover = {
         },
 
         addFieldToTemplateAndExpand: async function (fieldname, entityType) {
-            console.log("addFieldToTemplateAndExpand")
             try {
                 var entityMetadata = PreviewOnHover.Cache.get(entityType);
 
@@ -708,11 +707,12 @@ var PreviewOnHover = {
                 } else if (attribute.AttributeType == "Lookup") {
                     await PreviewOnHover.addToQueryExpandItems(fieldname, attribute.AttributeType, attribute.Targets[0], entityType);
                     var fielddata = await PreviewOnHover.getPrimaryNameAttribute(attribute.Targets[0], fieldname);
+
                     // adding to template
                     result = "{{?it." + fieldname + "}}"
                         + "<a href='" + PreviewOnHover.organizationURI + "/main.aspx?etn=" + fielddata.entityType + "&id={{=it." + fieldname + "." + fielddata.PrimaryIdAttribute + "}}&pagetype=entityrecord' target='_blank'>{{=it." + fieldname + "." + fielddata.PrimaryNameAttribute + "}}</a>"
                         + "{{?}}";
-
+                    return result;
                 } else {
                     // no need to add to expand query items
                     result = "{{=it." + fieldname + "}}";
