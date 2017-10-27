@@ -7,7 +7,7 @@
 /*global Xrm*/
 
 var PreviewOnHover = {
-    debug: false,
+    debug: true,
     log: function () {
         if (PreviewOnHover.debug) console.log.apply(this, arguments);
     },
@@ -50,6 +50,7 @@ var PreviewOnHover = {
         }, '.ms-crm-Lookup-Item');
 
         // HANDLER FOR SUB-GRID LOOKUP
+        /*
         $(document).on({
             mouseenter: function (e) {
                 // get the target
@@ -69,6 +70,7 @@ var PreviewOnHover = {
                 }
             }
         }, '.ms-crm-List-Link')
+        */
 
 
         // adding handler for select new form
@@ -149,6 +151,7 @@ var PreviewOnHover = {
             } else {
                 PreviewOnHover.Cache.database = [];
             }
+            PreviewOnHover.Cache.database = []; // --- HACK
         },
         purge: function () {
             PreviewOnHover.Cache.database = [];
@@ -196,8 +199,7 @@ var PreviewOnHover = {
         }
     },
 
-    getEntityMetadataFromCache: function (entityType) {
-        var deferred = $.Deferred();
+    getEntityMetadataFromCache1: async function (entityType) {
 
         // check if entityMetadata already exists
         var entityMetadata = PreviewOnHover.Cache.get(entityType);
@@ -213,426 +215,388 @@ var PreviewOnHover = {
                     //  find the form metatdata and add it to the Cache
                     return PreviewOnHover.retrieveFormMetadata(entityType)
                 }).then(function () {
-                    deferred.resolve(PreviewOnHover.Cache.get(entityType));  // returning the enityMetadata
+                    return PreviewOnHover.Cache.get(entityType);  // returning the entityMetadata
                 });;
 
 
         } else {
-            deferred.resolve(entityMetadata);
+            return entityMetadata;
         }
 
-        return deferred.promise();
+    },
+
+    getEntityMetadataFromCache: function (entityType) {
+        return new Promise(function(resolve, reject){
+
+            // check if entityMetadata already exists
+            var entityMetadata = PreviewOnHover.Cache.get(entityType);
+
+            // if not found then generate new entityMetadata in Cache
+            if (!(entityMetadata && entityMetadata.entityType)) {
+                PreviewOnHover.log("getEntityMetadataFromCache - no entity metadata for:" + entityType);
+
+
+                // get EntityCollectionName and all Attributes to use in querying for data
+                PreviewOnHover.retrieveEntityAndAttributeMetadata(entityType)
+                    .then(function () {
+                        //  find the form metatdata and add it to the Cache
+                        return PreviewOnHover.retrieveFormMetadata(entityType)
+                    }).then(function () {
+                        resolve(PreviewOnHover.Cache.get(entityType));  // returning the enityMetadata
+                    });;
+
+
+            } else {
+                resolve(entityMetadata);
+            }
+        });
     },
 
     buildEntityExpandQuery: function (entityMetadata) {
-        var deferred = $.Deferred();
-        var requests = Array();
+        return new Promise(function(resolve, reject){
+            var asyncCalls = Array();
 
-        // rebuild query from array of expand items
-        var expandlist = [];
+            // rebuild query from array of expand items
+            var expandlist = [];
 
-        _.each(entityMetadata.queryExpandItems, function (value, key, list) {
-            if (value.fieldtype == "Lookup" || value.fieldtype == "Owner" || value.fieldtype == "Customer") {
-                requests.push(PreviewOnHover.getPrimaryNameAttribute(value.target, value.fieldname));
+            _.each(entityMetadata.queryExpandItems, function (value, key, list) {
+                if (value.fieldtype == "Lookup" || value.fieldtype == "Owner" || value.fieldtype == "Customer") {
+                    asyncCalls.push(PreviewOnHover.getPrimaryNameAttribute(value.target, value.fieldname));
+                }
+            });
+
+            if (asyncCalls.length > 0) {
+                var defer = $.when.apply($, asyncCalls);
+                Promise.all(asyncCalls).then(function(values){
+                    // This is executed only after every ajax request has been completed
+                    $.each(values, function (index, responseData) {
+                        // "responseData" will contain an array of response information for each specific request
+                        expandlist.push(responseData.fieldname + "($select=" + responseData.PrimaryNameAttribute + ")");
+                    });
+                    if (expandlist.length > 0) {
+                        entityMetadata.queryexpand = "";
+                        entityMetadata.queryexpand = "$expand=" + expandlist.join(",");
+                    }
+                    resolve(entityMetadata);
+                })
+            } else {
+                resolve(entityMetadata);
             }
         });
-
-        if (requests.length > 0) {
-            var defer = $.when.apply($, requests);
-            defer.done(function () {
-                // This is executed only after every ajax request has been completed
-                $.each(arguments, function (index, responseData) {
-                    // "responseData" will contain an array of response information for each specific request
-                    expandlist.push(responseData.fieldname + "($select=" + responseData.PrimaryNameAttribute + ")");
-                });
-                if (expandlist.length > 0) {
-                    entityMetadata.queryexpand = "";
-                    entityMetadata.queryexpand = "$expand=" + expandlist.join(",");
-                }
-                deferred.resolve(entityMetadata);
-            });
-        } else {
-            deferred.resolve(entityMetadata);
-        }
-
-        return deferred.promise();
     },
 
     retrieveEntityAndAttributeMetadata: function (entityType) {
-        var deferred = $.Deferred();
 
-        // get quick view forms for entity
+        return new Promise(function(resolve, reject){
 
-        // Getting EntityForm Data
-        $.ajax({
-            url: PreviewOnHover.organizationURI + "/api/data/v8.0/" + "/EntityDefinitions(LogicalName='" + entityType + "')?$select=LogicalName,PrimaryNameAttribute,PrimaryIdAttribute,EntitySetName,SchemaName&$expand=Attributes",
-            headers: {
-                'Accept': "application/json",
-                'Content-Type': 'application/json; charset=utf-8',
-                'OData-MaxVersion': "4.0",
-                'OData-Version': "4.0"
-            },
-            method: 'GET',
-            //   dataType: 'json',
-            success: function (data) {
-                PreviewOnHover.log("--retrieveEntityAndAttributeMetadata(" + entityType + ")--success")
-                PreviewOnHover.log(data);
+            // get quick view forms for entity
 
-                PreviewOnHover.Cache.add(entityType, {
-                    DisplayName: data.SchemaName,
-                    LogicalCollectionName: data.EntitySetName,
-                    PrimaryIdAttribute: data.PrimaryIdAttribute,
-                    PrimaryNameAttribute: data.PrimaryNameAttribute,
-                    Attributes: data.Attributes,
-                    queryExpandItems: [],
-                    queryexpand: ""
-                });
+            // Getting EntityForm Data
+            $.ajax({
+                url: PreviewOnHover.organizationURI + "/api/data/v8.0/" + "/EntityDefinitions(LogicalName='" + entityType + "')?$select=LogicalName,PrimaryNameAttribute,PrimaryIdAttribute,EntitySetName,SchemaName&$expand=Attributes",
+                headers: {
+                    'Accept': "application/json",
+                    'Content-Type': 'application/json; charset=utf-8',
+                    'OData-MaxVersion': "4.0",
+                    'OData-Version': "4.0"
+                },
+                method: 'GET',
+                //   dataType: 'json',
+                success: function (data) {
+                    PreviewOnHover.log("--retrieveEntityAndAttributeMetadata(" + entityType + ")--success")
+                    PreviewOnHover.log(data);
 
-                deferred.resolve();
-            },
-            error: function (data) {
-                PreviewOnHover.log("retrieveEntityAndAttributeMetadata(" + entityType + ") - error: ");
-                PreviewOnHover.log(data);
-                $("#errorMessage").text(data.responseJSON.error.message);
-                deferred.resolve();
-            }
-        });
+                    PreviewOnHover.Cache.add(entityType, {
+                        DisplayName: data.SchemaName,
+                        LogicalCollectionName: data.EntitySetName,
+                        PrimaryIdAttribute: data.PrimaryIdAttribute,
+                        PrimaryNameAttribute: data.PrimaryNameAttribute,
+                        Attributes: data.Attributes,
+                        queryExpandItems: [],
+                        queryexpand: ""
+                    });
 
-        return deferred.promise();
+                    resolve();
+                },
+                error: function (data) {
+                    PreviewOnHover.log("retrieveEntityAndAttributeMetadata(" + entityType + ") - error: ");
+                    PreviewOnHover.log(data);
+                    $("#errorMessage").text(data.responseJSON.error.message);
+                    resolve();
+                }
+            });
+
+        });//end promise
     },
 
     retrieveFormMetadata: function (entityType) {
-        var deferred = $.Deferred();
 
         var query = "systemforms?$filter=objecttypecode eq '" + entityType + "' and type eq 6";
         var url = PreviewOnHover.organizationURI + "/api/data/v8.0/" + query;
 
+        return new Promise(function(resolve,reject){
         // get quick view forms for entity
 
-        // Getting EntityForm Data
-        $.ajax({
-            url: url,
-            headers: {
-                'Accept': "application/json",
-                'Content-Type': 'application/json; charset=utf-8',
-                'OData-MaxVersion': "4.0",
-                'OData-Version': "4.0"
-            },
-            method: 'GET',
-            //   dataType: 'json',
-            success: function (data) {
-                PreviewOnHover.log("retrieveFormMetadata(" + entityType + ") - succes: ");
-                PreviewOnHover.log(data);
+            // Getting EntityForm Data
+            $.ajax({
+                url: url,
+                headers: {
+                    'Accept': "application/json",
+                    'Content-Type': 'application/json; charset=utf-8',
+                    'OData-MaxVersion': "4.0",
+                    'OData-Version': "4.0"
+                },
+                method: 'GET',
+                //   dataType: 'json',
+                success: function (data) {
+                    PreviewOnHover.log("retrieveFormMetadata(" + entityType + ") - succes: ");
+                    PreviewOnHover.log(data);
 
-                // if at least one quick view form
-                if (data.value && data.value.length > 0) {
+                    // if at least one quick view form
+                    if (data.value && data.value.length > 0) {
 
-                    var entityMetadata = PreviewOnHover.Cache.get(entityType);
+                        var entityMetadata = PreviewOnHover.Cache.get(entityType);
 
-                    if (!entityMetadata) {
-                        PreviewOnHover.log("retrieveFormMetadata(" + entityType + ") - ERROR - MetaData not found in Cache")
-                    } else {
+                        if (!entityMetadata) {
+                            PreviewOnHover.log("retrieveFormMetadata(" + entityType + ") - ERROR - MetaData not found in Cache")
+                        } else {
 
-                        // save forms to the entityMetadata
-                        PreviewOnHover.Cache.update(entityType, {
-                            forms: data.value
-                        });
-
-                        // take the first view
-                        PreviewOnHover.setForm(data.value[0].formid, entityType)
-                            .then(function () {
-                                deferred.resolve();
+                            // save forms to the entityMetadata
+                            PreviewOnHover.Cache.update(entityType, {
+                                forms: data.value
                             });
 
+                            // take the first view
+                            PreviewOnHover.setForm(data.value[0].formid, entityType)
+                                .then(function () {
+                                    resolve();
+                                });
+
+                        }
+
+                    } else {
+                        PreviewOnHover.log("no quick view forms for: " + entityType);
+                        var entityMetadata = PreviewOnHover.Cache.get(entityType);
+                        // overwrites the entitymetadata template attribute
+                        PreviewOnHover.Cache.update(entityType, {
+                            forms: [],
+                            formName: "none",
+                            formId: "",
+                            formXML: "",
+                            formJSON: {},
+                            formHTML: "",
+                            template:
+                            "<p><span class='pop-over-title'>" + (entityMetadata.DisplayName).toUpperCase() + ": {{=it." + entityMetadata.PrimaryNameAttribute + "}}</span>"
+                            + "<h5>" + "No Quick View Form - please create one." + "</h5>"
+                            + "<a href='javascript:void(0)' class='onhover-refresh' title='refresh cache'>Refresh</a></br>"
+                            + "</p>"
+                        });
+                        resolve();
                     }
 
-                } else {
-                    PreviewOnHover.log("no quick view forms for: " + entityType);
-                    var entityMetadata = PreviewOnHover.Cache.get(entityType);
-                    // overwrites the entitymetadata template attribute
-                    PreviewOnHover.Cache.update(entityType, {
-                        forms: [],
-                        formName: "none",
-                        formId: "",
-                        formXML: "",
-                        formJSON: {},
-                        formHTML: "",
-                        template:
-                        "<p><h3>" + (entityMetadata.DisplayName).toUpperCase() + ": {{=it." + entityMetadata.PrimaryNameAttribute + "}}</h3>"
-                        + "<h5>" + "No Quick View Form - please create one." + "</h5>"
-                        + "<a href='javascript:void(0)' class='onhover-refresh' title='refresh cache'>Refresh</a></br>"
-                        + "</p>"
-                    });
-                    deferred.resolve();
+                },
+                error: function (data) {
+                    PreviewOnHover.log("retrieveFormMetadata(" + entityType + ") - error: ");
+                    PreviewOnHover.log(data);
+                    $("#errorMessage").text(data.responseJSON.error.message);
                 }
+            });
 
-            },
-            error: function (data) {
-                PreviewOnHover.log("retrieveFormMetadata(" + entityType + ") - error: ");
-                PreviewOnHover.log(data);
-                $("#errorMessage").text(data.responseJSON.error.message);
-            }
-        });
-
-        return deferred.promise();
+        }); // end promise
 
     },
 
     setForm: function (formid, entityType) {
-        var deferred = $.Deferred();
-
-        var entityMetadata = PreviewOnHover.Cache.get(entityType);
-
-        if (!entityMetadata) {
-            PreviewOnHover.log("retrieveFormMetadata(" + entityType + ") - ERROR - MetaData not found in Cache");
-            deferred.resolve();
-        } else {
-            var form = _.findWhere(entityMetadata.forms, { formid: formid });
-            if (form) {
-
-                var quickviewXML = form.formxml;
-                var x2js = new X2JS();
-                var quickviewJSON = x2js.xml_str2json(quickviewXML);
-
-                PreviewOnHover.formEngine.buildTemplate(quickviewJSON, entityType)
-                    .then(function (formHTML) {
-                        // building form options
-                        var formOptions = "<select class='onhover-form-selection' id='" + entityType + "_" + (Math.floor(Math.random() * 1000000) + 1) + "'>";
-                        _.each(entityMetadata.forms, function (element, index, list) {
-                            formOptions += "<option value='" + element.formid + "' " + (element.formid == formid ? "selected" : "") + ">" + element.name + "</option>";
-                        })
-                        formOptions += "</select>";
-
-                        // overwrites the entitymetadata template attribute
-                        PreviewOnHover.Cache.update(entityType, {
-                            formName: form.name,
-                            formId: form.formid,
-                            formXML: quickviewXML,
-                            formJSON: quickviewJSON,
-                            formHTML: formHTML,
-                            template:
-                            "<p><h3>" + (entityMetadata.DisplayName).toUpperCase() + ": {{=it." + entityMetadata.PrimaryNameAttribute + "}}</h3>"
-                            + formHTML
-                            + formOptions
-                            + "<a href='javascript:void(0)' class='onhover-refresh' title='refresh cache'>Refresh</a></br>"
-                            + "</p>"
-
-                        });
-                        deferred.resolve();
-                    });
-
-
+        return new Promise(function(resolve,reject){
+            var entityMetadata = PreviewOnHover.Cache.get(entityType);
+            
+            if (!entityMetadata) {
+                PreviewOnHover.log("retrieveFormMetadata(" + entityType + ") - ERROR - MetaData not found in Cache");
+                resolve();
             } else {
-                PreviewOnHover.log("FORM NOT FOUND: " + formid + "/" + entityType);
-                deferred.resolve();
+                var form = _.findWhere(entityMetadata.forms, { formid: formid });
+                if (form) {
+    
+                    var quickviewXML = form.formxml;
+                    var x2js = new X2JS();
+                    var quickviewJSON = x2js.xml_str2json(quickviewXML);
+    
+                    PreviewOnHover.formEngine.buildTemplate(quickviewJSON, entityType)
+                        .then(function (formHTML) {
+                            // building form options
+                            var formOptions = "<select class='onhover-form-selection' id='" + entityType + "_" + (Math.floor(Math.random() * 1000000) + 1) + "'>";
+                            _.each(entityMetadata.forms, function (element, index, list) {
+                                formOptions += "<option value='" + element.formid + "' " + (element.formid == formid ? "selected" : "") + ">" + element.name + "</option>";
+                            })
+                            formOptions += "</select>";
+    
+                            // overwrites the entitymetadata template attribute
+                            PreviewOnHover.Cache.update(entityType, {
+                                formName: form.name,
+                                formId: form.formid,
+                                formXML: quickviewXML,
+                                formJSON: quickviewJSON,
+                                formHTML: formHTML,
+                                template:
+                                "<p><span class='pop-over-title'>" + (entityMetadata.DisplayName).toUpperCase() + ": {{=it." + entityMetadata.PrimaryNameAttribute + "}}</span>"
+                                + formHTML
+                                + "<span class='pop-over-form-options'>"
+                                + formOptions
+                                + "<a href='javascript:void(0)' class='onhover-refresh' title='refresh cache'>Refresh</a></br>"
+                                + "</span>"
+                                + "</p>"
+    
+                            });
+                            resolve();
+                        });
+    
+    
+                } else {
+                    PreviewOnHover.log("FORM NOT FOUND: " + formid + "/" + entityType);
+                    resolve();
+                }
+    
             }
-
-        }
-
-        return deferred.promise();
+        });
     },
 
     formEngine: {
         buildTemplate: function (jsonObj, entityType) {
-            var deferred = $.Deferred();
-
-            PreviewOnHover.formEngine.parseFormJSON(jsonObj, entityType)
+            return new Promise(function(resolve,reject){
+                PreviewOnHover.formEngine.parseFormJSON(jsonObj, entityType)
                 .then(function (string) {
-                    deferred.resolve(string);
+                    resolve(string);
                 });
-
-            return deferred.promise();
+            });
         },
 
         parseFormJSON: function (jsonObj, entityType) {
-            var deferred = $.Deferred();
-            var result = "<table class='form'>";//"<form>";
+            return new Promise(function(resolve,reject){
+                var result = "<table class='form'>";//"<form>";
+                
+                if (jsonObj.form) {
+                    PreviewOnHover.formEngine.addForm(jsonObj.form, entityType)
+                        .then(function (string) {
+                            result += string;
+                            result += "</table>";//"</form>";
+                            resolve(result);
+                        });
+                } else {
+                    result += "</table>";//"</form>";
+                    resolve(result);
+                }
+            });
 
-            if (jsonObj.form) {
-                PreviewOnHover.formEngine.addForm(jsonObj.form, entityType)
-                    .then(function (string) {
-                        result += string;
-                        result += "</table>";//"</form>";
-                        deferred.resolve(result);
-                    });
-            } else {
-                result += "</table>";//"</form>";
-                deferred.resolve(result);
-            }
-
-
-            return deferred.promise();
         },
 
         addForm: function (jsonObj, entityType) {
-            var deferred = $.Deferred();
-            var result = "";//"<tabs>";
-
-            if (jsonObj.tabs) {
-                PreviewOnHover.formEngine.addTabs(jsonObj.tabs, entityType)
-                    .then(function (string) {
-                        result += string;
-                        result += "";//"</tabs>";
-                        deferred.resolve(result);
-                    });
-            } else {
-                result += "";//"</tabs>";
-                deferred.resolve(result);
-            }
-
-            return deferred.promise();
+            return new Promise(function(resolve,reject){
+                var result = "";//"<tabs>";
+                
+                if (jsonObj.tabs) {
+                    PreviewOnHover.formEngine.addTabs(jsonObj.tabs, entityType)
+                        .then(function (string) {
+                            result += string;
+                            result += "";//"</tabs>";
+                            resolve(result);
+                        });
+                } else {
+                    result += "";//"</tabs>";
+                    resolve(result);
+                }
+            })
         },
 
         addTabs: function (jsonObj, entityType) {
-            var deferred = $.Deferred();
-            var result = "";//"<tab>";
+            return new Promise(function(resolve,reject){
+                var result = "";//"<tab>";
 
-            if (jsonObj.tab) {
-                PreviewOnHover.formEngine.addTab(jsonObj.tab, entityType)
-                    .then(function (string) {
-                        result += string;
-                        result += "";//"</tab>"
-                        deferred.resolve(result);
-                    });
-            } else {
-                result += "";//"</tab>"
-                deferred.resolve(result);
-            }
-
-            return deferred.promise();
+                if (jsonObj.tab) {
+                    PreviewOnHover.formEngine.addTab(jsonObj.tab, entityType)
+                        .then(function (string) {
+                            result += string;
+                            result += "";//"</tab>"
+                            resolve(result);
+                        });
+                } else {
+                    result += "";//"</tab>"
+                    resolve(result);
+                }
+            });
         },
 
         addTab: function (jsonObj, entityType) {
-            var deferred = $.Deferred();
-            var result = "";//"<columns>";
+            return new Promise(function(resolve,reject){
+                var result = "";//"<columns>";
 
-            if (jsonObj.columns) {
-                PreviewOnHover.formEngine.addColumns(jsonObj.columns, entityType)
-                    .then(function (string) {
-                        result += string;
-                        result += "";//"</columns>"
-                        deferred.resolve(result);
-                    });
-            } else {
-                result += "";//"</columns>"
-                deferred.resolve(result);
-            }
-
-            return deferred.promise();
+                if (jsonObj.columns) {
+                    PreviewOnHover.formEngine.addColumns(jsonObj.columns, entityType)
+                        .then(function (string) {
+                            result += string;
+                            result += "";//"</columns>"
+                            resolve(result);
+                        });
+                } else {
+                    result += "";//"</columns>"
+                    resolve(result);
+                }
+            });
         },
 
         addColumns: function (jsonObj, entityType) {
-            var deferred = $.Deferred();
-            var result = "";//"<column>";
+            return new Promise(function(resolve,reject){
+                var result = "";//"<column>";
 
-            if (jsonObj.column) {
-                PreviewOnHover.formEngine.addColumn(jsonObj.column, entityType)
-                    .then(function (string) {
-                        result += string;
-                        result += "";//"</column>"
-                        deferred.resolve(result);
-                    });
-            } else {
-                result += "";//"</column>"
-                deferred.resolve(result);
-            }
-
-            return deferred.promise();
+                if (jsonObj.column) {
+                    PreviewOnHover.formEngine.addColumn(jsonObj.column, entityType)
+                        .then(function (string) {
+                            result += string;
+                            result += "";//"</column>"
+                            resolve(result);
+                        });
+                } else {
+                    result += "";//"</column>"
+                    resolve(result);
+                }
+            });
         },
 
         addColumn: function (jsonObj, entityType) {
-            var deferred = $.Deferred();
-            var result = "";//"<sections>";
+            return new Promise(function(resolve,reject){
+                var result = "";//"<sections>";
 
-            if (jsonObj.sections) {
-                PreviewOnHover.formEngine.addSections(jsonObj.sections, entityType)
-                    .then(function (string) {
-                        result += string;
-                        result += "";//"</sections>"
-                        deferred.resolve(result);
-                    });
-            } else {
-                result += "";//"</sections>"
-                deferred.resolve(result);
-            }
-
-            return deferred.promise();
+                if (jsonObj.sections) {
+                    PreviewOnHover.formEngine.addSections(jsonObj.sections, entityType)
+                        .then(function (string) {
+                            result += string;
+                            result += "";//"</sections>"
+                            resolve(result);
+                        });
+                } else {
+                    result += "";//"</sections>"
+                    resolve(result);
+                }
+            });
         },
         addSections: function (jsonObj, entityType) {
-            var deferred = $.Deferred();
-            var result = "";//"<section>";
+            return new Promise(function(resolve,reject){
+                var result = "";//"<section>";
 
-            if (jsonObj.section && !(_.isArray(jsonObj.section))) {
-                PreviewOnHover.formEngine.addSection(jsonObj.section, entityType)
-                    .then(function (string) {
-                        result += string;
-                        result += "";//"</section>"
-                        deferred.resolve(result);
-                    });
-            } else if (jsonObj.section && _.isArray(jsonObj.section)) {
-                var requests = Array();
+                if (jsonObj.section && !(_.isArray(jsonObj.section))) {
+                    PreviewOnHover.formEngine.addSection(jsonObj.section, entityType)
+                        .then(function (string) {
+                            result += string;
+                            result += "";//"</section>"
+                            resolve(result);
+                        });
+                } else if (jsonObj.section && _.isArray(jsonObj.section)) {
+                    var requests = Array();
 
-                _.each(jsonObj.section, function (element, index, list) {
-                    requests.push(PreviewOnHover.formEngine.addSection(element, entityType))
-                });
-
-                var defer = $.when.apply($, requests);
-                defer.done(function () {
-                    // This is executed only after every ajax request has been completed
-                    $.each(arguments, function (index, responseData) {
-                        // "responseData" will contain an array of response information for each specific request
-                        result += responseData;
+                    _.each(jsonObj.section, function (element, index, list) {
+                        requests.push(PreviewOnHover.formEngine.addSection(element, entityType))
                     });
 
-                    result += "";//"</row>"
-                    deferred.resolve(result);
-
-                });
-
-            } else {
-                result += "";//"</section>"
-                deferred.resolve(result);
-            }
-
-            return deferred.promise();
-        },
-
-        addSection: function (jsonObj, entityType) {
-            var deferred = $.Deferred();
-            var result = "";//"<rows>";
-
-            if (jsonObj.rows) {
-                PreviewOnHover.formEngine.addRows(jsonObj.rows, entityType)
-                    .then(function (string) {
-                        result += string;
-                        result += "";//"</rows>"
-                        deferred.resolve(result);
-                    });
-            } else {
-                result += "";//"</rows>"
-                deferred.resolve(result);
-            }
-
-            return deferred.promise();
-        },
-
-        addRows: function (jsonObj, entityType) {
-            var deferred = $.Deferred();
-            var requests = Array();
-
-            var result = "";//"<row>";
-
-            if (jsonObj.row) {
-                _.each(jsonObj.row, function (row, index, list) {
-                    // only adding row that are objects who have controls with datafieldnames
-                    if (row && _.isObject(row) && row.cell && row.cell.control && row.cell.control._datafieldname) {
-                        requests.push(PreviewOnHover.formEngine.addRow(row, entityType));
-                    }
-                });
-
-                if (requests.length > 0) {
                     var defer = $.when.apply($, requests);
-
                     defer.done(function () {
                         // This is executed only after every ajax request has been completed
                         $.each(arguments, function (index, responseData) {
@@ -641,191 +605,266 @@ var PreviewOnHover = {
                         });
 
                         result += "";//"</row>"
-                        deferred.resolve(result);
+                        resolve(result);
 
                     });
+
+                } else {
+                    result += "";//"</section>"
+                    resolve(result);
+                }
+            });
+        },
+
+        addSection: function (jsonObj, entityType) {
+            return new Promise(function(resolve,reject){
+                var result = "";//"<rows>";
+
+                if (jsonObj.rows) {
+                    PreviewOnHover.formEngine.addRows(jsonObj.rows, entityType)
+                        .then(function (string) {
+                            result += string;
+                            result += "";//"</rows>"
+                            resolve(result);
+                        });
+                } else {
+                    result += "";//"</rows>"
+                    resolve(result);
+                }
+            });
+        },
+
+        addRows: function (jsonObj, entityType) {
+            return new Promise(function(resolve,reject){
+                var asyncCalls = [];
+
+                var result = "";//"<row>";
+
+                if (jsonObj.row) {
+                    _.each(jsonObj.row, function (row, index, list) {
+                        // only adding row that are objects who have controls with datafieldnames
+                        if (row && _.isObject(row) && row.cell && row.cell.control && row.cell.control._datafieldname) {
+                            asyncCalls.push(PreviewOnHover.formEngine.addRow(row, entityType))
+                        }
+                    });
+                    console.log("++++++++++++++++++++ASYNC CALLS+++++++++++++++++++++++++:" + asyncCalls.length)
+                    if (asyncCalls.length > 0) {
+                        console.log("++++++++++++++++++++ERROR+++++++++++++++++++++++++");
+                        Promise.all(asyncCalls).then(function(values) {
+                            //if(err) console.log(err)
+                            $.each(values, function (index, responseData) {
+                                // "responseData" will contain an array of response information for each specific request
+                                result += responseData;
+                            });
+                            result += "";//"</row>"
+                            resolve(result);
+                        });
+
+                    } else {
+                        result += "";//"</row>"
+                        resolve(result);
+                    }
+
                 } else {
                     result += "";//"</row>"
-                    deferred.resolve(result);
+                    resolve(result);
                 }
-
-            } else {
-                result += "";//"</row>"
-                deferred.resolve(result);
-            }
-
-            return deferred.promise();
+            });
         },
 
         addRow: function (jsonObj, entityType) {
-            var deferred = $.Deferred();
-            var result = "<tr class='cell'>";
+            return new Promise(function(resolve,reject){
+                var result = "<tr class='cell'>";
 
-            if (jsonObj.cell) {
-                PreviewOnHover.formEngine.addCellLabels(jsonObj.cell, entityType)
-                    .then(function (string) {
-                        result += string;
-                        return PreviewOnHover.formEngine.addCellControl(jsonObj.cell, entityType);
-                    })
-                    .then(function (string) {
-                        result += string;
-                        result += "</tr>"
-                        deferred.resolve(result);
-                    });
+                if (jsonObj.cell) {
+                    PreviewOnHover.formEngine.addCellLabels(jsonObj.cell, entityType)
+                        .then(function (string) {
+                            result += string;
+                            return PreviewOnHover.formEngine.addCellControl(jsonObj.cell, entityType);
+                        })
+                        .then(function (string) {
+                            result += string;
+                            result += "</tr>"
+                            resolve(result);
+                        });
 
-            } else {
-                result += "</tr>"
-                deferred.resolve(result);
-            }
-
-            return deferred.promise();
+                } else {
+                    result += "</tr>"
+                    resolve(result);
+                }
+            });
         },
 
         addCellControl: function (jsonObj, entityType) {
-            var deferred = $.Deferred();
-            var result = "<td class='control'>";
+            return new Promise(function(resolve,reject){
+                var result = "<td class='control'>";
 
-            if (jsonObj.control && jsonObj.control._datafieldname) {
-                PreviewOnHover.formEngine.addFieldToTemplateAndExpand(jsonObj.control._datafieldname, entityType)
-                    .then(function (string) {
-                        result += string;
-                        result += "</td>"
-                        deferred.resolve(result);
-                    });
-            } else {
-                result += "</td>"
-                deferred.resolve(result);
-            }
-
-            return deferred.promise();
+                if (jsonObj.control && jsonObj.control._datafieldname) {
+                    PreviewOnHover.formEngine.addFieldToTemplateAndExpand(jsonObj.control._datafieldname, entityType)
+                        .then(function (string) {
+                            result += string;
+                            result += "</td>"
+                            resolve(result);
+                        });
+                } else {
+                    result += "</td>"
+                    resolve(result);
+                }
+            });
         },
 
         addCellLabels: function (jsonObj, entityType) {
-            var deferred = $.Deferred();
-            var result = "<td class='labels'>";
+            return new Promise(function(resolve,reject){
+                var result = "<td class='labels'>";
 
-            if (jsonObj.labels) {
-                PreviewOnHover.formEngine.addLabels(jsonObj.labels, entityType)
-                    .then(function (string) {
-                        result += string;
-                        result += "</td>"
-                        deferred.resolve(result);
-                    });
-            } else {
-                result += "</td>"
-                deferred.resolve(result);
-            }
-
-            return deferred.promise();
+                if (jsonObj.labels) {
+                    PreviewOnHover.formEngine.addLabels(jsonObj.labels, entityType)
+                        .then(function (string) {
+                            result += string;
+                            result += "</td>"
+                            resolve(result);
+                        });
+                } else {
+                    result += "</td>"
+                    resolve(result);
+                }
+            });
         },
 
         addLabels: function (jsonObj, entityType) {
-            var deferred = $.Deferred();
-            var result = "<label>";
+            return new Promise(function(resolve,reject){
+                var result = "<label>";
 
-            if (jsonObj.label) {
-                result += jsonObj.label._description + ": ";
-            }
+                if (jsonObj.label) {
+                    result += jsonObj.label._description + ": ";
+                }
 
-            result += "</label>";
-            deferred.resolve(result);
-            return deferred.promise();
+                result += "</label>";
+                resolve(result);
+            });
         },
 
         addFieldToTemplateAndExpand: function (fieldname, entityType) {
-            var deferred = $.Deferred();
+            return new Promise(function(resolve,reject){
 
-            var entityMetadata = PreviewOnHover.Cache.get(entityType);
+                var entityMetadata = PreviewOnHover.Cache.get(entityType);
 
-            var attribute = _.findWhere(entityMetadata.Attributes, { LogicalName: fieldname });
-            var result = "";
+                var attribute = _.findWhere(entityMetadata.Attributes, { LogicalName: fieldname });
+                var result = "";
 
-            // type = "Owner" ==> owninguser or owningteam
-            if (attribute.AttributeType == "Owner") {
+                // type = "Owner" ==> owninguser or owningteam
+                if (attribute.AttributeType == "Owner") {
 
-                PreviewOnHover.addToQueryExpandItems("owninguser", attribute.AttributeType, "systemuser", entityType)
-                    .then(function () {
-                        return PreviewOnHover.addToQueryExpandItems("owningteam", attribute.AttributeType, "team", entityType);
-                    }).then(function () {
-                        result = "{{?it.owninguser}}"
-                            + "<a href='" + PreviewOnHover.organizationURI + "/main.aspx?etn=systemuser&id={{=it.owninguser.ownerid}}&pagetype=entityrecord' target='_blank'>{{=it.owninguser.fullname}}</a>"
-                            + "{{?}}"
-                            + "{{?it.owningteam}}"
-                            + "{{=it.owningteam.name}}"
-                            + "<a href='" + PreviewOnHover.organizationURI + "/main.aspx?etn=team&id={{=it.owningteam.teamid}}&pagetype=entityrecord' target='_blank'>{{=it.owningteam.name}}</a>"
-                            + "{{?}}";
-                        deferred.resolve(result);
-                    })
+                    PreviewOnHover.addToQueryExpandItems("owninguser", attribute.AttributeType, "systemuser", entityType)
+                        .then(function () {
+                            return PreviewOnHover.addToQueryExpandItems("owningteam", attribute.AttributeType, "team", entityType);
+                        }).then(function () {
+                            result = "{{?it.owninguser}}"
+                                + "<a href='" + PreviewOnHover.organizationURI + "/main.aspx?etn=systemuser&id={{=it.owninguser.ownerid}}&pagetype=entityrecord' target='_blank'>{{=it.owninguser.fullname}}</a>"
+                                + "{{?}}"
+                                + "{{?it.owningteam}}"
+                                + "{{=it.owningteam.name}}"
+                                + "<a href='" + PreviewOnHover.organizationURI + "/main.aspx?etn=team&id={{=it.owningteam.teamid}}&pagetype=entityrecord' target='_blank'>{{=it.owningteam.name}}</a>"
+                                + "{{?}}";
+                            resolve(result);
+                        })
 
-            } else if (attribute.AttributeType == "Customer") {
-                PreviewOnHover.addToQueryExpandItems(fieldname + "_account", attribute.AttributeType, "account", entityType)
-                    .then(function () {
-                        return PreviewOnHover.addToQueryExpandItems(fieldname + "_contact", attribute.AttributeType, "contact", entityType);
-                    }).then(function () {
-                        result = "{{?it." + fieldname + "_account}}"
-                            + "<a href='" + PreviewOnHover.organizationURI + "/main.aspx?etn=account&id={{=it." + fieldname + "_account.accountid}}&pagetype=entityrecord' target='_blank'>{{=it." + fieldname + "_account.name}}</a>"
-                            + "{{?}}"
-                            + "{{?it." + fieldname + "_contact}}"
-                            + "<a href='" + PreviewOnHover.organizationURI + "/main.aspx?etn=contact&id={{=it." + fieldname + "_contact.contactid}}&pagetype=entityrecord' target='_blank'>{{=it." + fieldname + "_contact.fullname}}</a>"
-                            + "{{?}}";
-                        deferred.resolve(result);
-                    });
+                } else if (attribute.AttributeType == "Customer") {
+                    PreviewOnHover.addToQueryExpandItems(fieldname + "_account", attribute.AttributeType, "account", entityType)
+                        .then(function () {
+                            return PreviewOnHover.addToQueryExpandItems(fieldname + "_contact", attribute.AttributeType, "contact", entityType);
+                        }).then(function () {
+                            result = "{{?it." + fieldname + "_account}}"
+                                + "<a href='" + PreviewOnHover.organizationURI + "/main.aspx?etn=account&id={{=it." + fieldname + "_account.accountid}}&pagetype=entityrecord' target='_blank'>{{=it." + fieldname + "_account.name}}</a>"
+                                + "{{?}}"
+                                + "{{?it." + fieldname + "_contact}}"
+                                + "<a href='" + PreviewOnHover.organizationURI + "/main.aspx?etn=contact&id={{=it." + fieldname + "_contact.contactid}}&pagetype=entityrecord' target='_blank'>{{=it." + fieldname + "_contact.fullname}}</a>"
+                                + "{{?}}";
+                            resolve(result);
+                        });
 
-                // type = "lookup" ==> field + ###NEED TO FIND the LOOKUP TYPE=Target ... and LOOKUP PRIMARYNAME  
-            } else if (attribute.AttributeType == "Lookup") {
-                PreviewOnHover.addToQueryExpandItems(fieldname, attribute.AttributeType, attribute.Targets[0], entityType)
-                    .then(function () {
-                        return PreviewOnHover.getPrimaryNameAttribute(attribute.Targets[0], fieldname)
-                    })
-                    .then(function (fielddata) {
-                        // adding to template
-                        result = "{{?it." + fieldname + "}}"
-                            + "<a href='" + PreviewOnHover.organizationURI + "/main.aspx?etn=" + fielddata.entityType + "&id={{=it." + fieldname + "." + fielddata.PrimaryIdAttribute + "}}&pagetype=entityrecord' target='_blank'>{{=it." + fieldname + "." + fielddata.PrimaryNameAttribute + "}}</a>"
-                            + "{{?}}";
-                        deferred.resolve(result);
-                    });
+                    // type = "lookup" ==> field + ###NEED TO FIND the LOOKUP TYPE=Target ... and LOOKUP PRIMARYNAME  
+                } else if (attribute.AttributeType == "Lookup") {
+                    PreviewOnHover.addToQueryExpandItems(fieldname, attribute.AttributeType, attribute.Targets[0], entityType)
+                        .then(function () {
+                            return PreviewOnHover.getPrimaryNameAttribute(attribute.Targets[0], fieldname)
+                        })
+                        .then(function (fielddata) {
+                            // adding to template
+                            result = "{{?it." + fieldname + "}}"
+                                + "<a href='" + PreviewOnHover.organizationURI + "/main.aspx?etn=" + fielddata.entityType + "&id={{=it." + fieldname + "." + fielddata.PrimaryIdAttribute + "}}&pagetype=entityrecord' target='_blank'>{{=it." + fieldname + "." + fielddata.PrimaryNameAttribute + "}}</a>"
+                                + "{{?}}";
+                            resolve(result);
+                        });
 
-            } else {
-                // no need to add to expand query items
-                result = "{{=it." + fieldname + "}}";
-                deferred.resolve(result);
-            }
-
-            return deferred.promise();
+                } else {
+                    // no need to add to expand query items
+                    result = "{{=it." + fieldname + "}}";
+                    resolve(result);
+                }
+            });
         }
 
     },
 
     addToQueryExpandItems: function (fieldname, fieldtype, target, entityType) {
-        var deferred = $.Deferred();
+        return new Promise(function(resolve,reject){
 
-        var entityMetadata = PreviewOnHover.Cache.get(entityType);
-        entityMetadata.queryExpandItems.push({
-            fieldname: fieldname,
-            fieldtype: fieldtype,
-            target: target
-        });
-
-        deferred.resolve();
-        return deferred.promise();
-    },
-
-    getPrimaryNameAttribute: function (entityType, fieldname) {
-        var deferred = $.Deferred();
-
-        // check if entityMetadata already exists
-        PreviewOnHover.getEntityMetadataFromCache(entityType)
-            .then(function (entityMetadata) {
-                deferred.resolve({
-                    entityMetadata: entityMetadata,
-                    entityType: entityType,
-                    PrimaryNameAttribute: entityMetadata.PrimaryNameAttribute,
-                    PrimaryIdAttribute: entityMetadata.PrimaryIdAttribute,
-                    fieldname: fieldname
-                });
+            var entityMetadata = PreviewOnHover.Cache.get(entityType);
+            entityMetadata.queryExpandItems.push({
+                fieldname: fieldname,
+                fieldtype: fieldtype,
+                target: target
             });
 
-        return deferred.promise();
+            resolve();
+        });
+    },
+
+    getPrimaryNameAttribute1: async function (entityType, fieldname) {
+
+        // check if entityMetadata already exists
+        var entityMetadata = await PreviewOnHover.getEntityMetadataFromCache(entityType);
+        console.log("------AWAIT--------")
+        console.log({
+            entityMetadata: entityMetadata,
+            entityType: entityType,
+            PrimaryNameAttribute: entityMetadata.PrimaryNameAttribute,
+            PrimaryIdAttribute: entityMetadata.PrimaryIdAttribute,
+            fieldname: fieldname
+        })
+        return {
+            entityMetadata: entityMetadata,
+            entityType: entityType,
+            PrimaryNameAttribute: entityMetadata.PrimaryNameAttribute,
+            PrimaryIdAttribute: entityMetadata.PrimaryIdAttribute,
+            fieldname: fieldname
+        };
+    },
+
+
+    getPrimaryNameAttribute: function (entityType, fieldname) {
+        return new Promise(function(resolve,reject){
+            // check if entityMetadata already exists
+            PreviewOnHover.getEntityMetadataFromCache(entityType)
+                .then(function (entityMetadata) {
+                    console.log("------PROMISE--------")
+                    console.log({
+                        entityMetadata: entityMetadata,
+                        entityType: entityType,
+                        PrimaryNameAttribute: entityMetadata.PrimaryNameAttribute,
+                        PrimaryIdAttribute: entityMetadata.PrimaryIdAttribute,
+                        fieldname: fieldname
+                    })
+                    resolve({
+                        entityMetadata: entityMetadata,
+                        entityType: entityType,
+                        PrimaryNameAttribute: entityMetadata.PrimaryNameAttribute,
+                        PrimaryIdAttribute: entityMetadata.PrimaryIdAttribute,
+                        fieldname: fieldname
+                    });
+                });
+        });
     }
 
 };
