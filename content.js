@@ -1,9 +1,9 @@
 (function () {
-    console.log("===============IN CONTENT===============")
+    console.log("===============IN CONTENT 2===============")
     var cssRef = document.createElement('link');
     cssRef.setAttribute('rel', 'stylesheet');
     cssRef.setAttribute('type', 'text/css');
-    cssRef.setAttribute('src', chrome.extension.getURL("preview-on-hover/style.css"));
+    cssRef.setAttribute('href', chrome.extension.getURL("preview-on-hover/style.css"));
 
     var formscriptTag = document.createElement('script');
     formscriptTag.setAttribute('type', 'text/javascript');
@@ -46,6 +46,7 @@
         formBody[0].appendChild(dotTag);
         formBody[0].appendChild(underscoreTag);
         formBody[0].appendChild(xml2jsonTag);
+        formBody[0].appendChild(cssRef);
         formBody[0].appendChild(formscriptTag);
     }
 
