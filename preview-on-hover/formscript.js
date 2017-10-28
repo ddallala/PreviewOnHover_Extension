@@ -15,6 +15,10 @@ var PreviewOnHover = {
         PreviewOnHover.organizationURI = organizationURI;
         PreviewOnHover.Cache.load();
 
+        // adding data to form
+        $("body").append($('<div id="preview-on-hover-dialog-bg"></div>'));
+        $("body").append($('<div id="preview-on-hover-dialog"><h1>Preview On Hover Settings</h1><p>Select the forms to show on each Entity</p><div id="preview-on-hover-dialog-content"></div><div style="clear:both"></div><div id="preview-on-hover-dialog-button-container"><button class="preview-on-hover-dialog-button" id="preview-on-hover-dialog-ok">OK</button></div></div>'));
+
         // HANDLER for SIMPLE CONTROL LOOKUP
         $(document).on({
             mouseenter: function (e) {
@@ -36,7 +40,7 @@ var PreviewOnHover = {
                     var RecordId = (lookupItem.id).slice(1, -1);
 
                     // show Popup
-                    PreviewOnHover.showPopup(selector, RecordId, entityType);
+                    PreviewOnHover.UI.showPopup(selector, RecordId, entityType);
 
                 }
 
@@ -66,7 +70,7 @@ var PreviewOnHover = {
                     var RecordId = (target.attr("id").split("_")[2]).slice(1, -1);
 
                     // show Popup
-                    PreviewOnHover.showPopup(selector, RecordId, entityType);
+                    PreviewOnHover.UI.showPopup(selector, RecordId, entityType);
                 }
             }
         }, '.ms-crm-List-Link')
@@ -76,71 +80,162 @@ var PreviewOnHover = {
         // adding handler for select new form
         $(document).on({
             change: function (element) {
-                PreviewOnHover.log("change");
-                PreviewOnHover.setForm($(element.target).children("option").filter(":selected").val(), $(element.target).attr("id").split("_")[0]);
+                var formid = $(element.target).children("option").filter(":selected").val();
+                var entityType  = $(element.target).attr("id").split("_")[1];
+                PreviewOnHover.setForm(formid, entityType);
             }
         }, '.onhover-form-selection');
 
-        // adding handler for refresh
         $(document).on({
             click: function (element) {
-                PreviewOnHover.log("refresh");
-                $(element.target).after("close dialog");
-                $(element.target).remove();
+                PreviewOnHover.log("---Deleting local cache--");
+                PreviewOnHover.log(PreviewOnHover.Cache);
                 PreviewOnHover.Cache.purge();
+                PreviewOnHover.log(PreviewOnHover.Cache);
             }
-        }, '.onhover-refresh');
+        }, '.preview-on-hover-dialog-refresh');
+        
+
+        // adding handler to launch settings
+        $(document).on({
+            click: function (element) {
+                PreviewOnHover.UI.buildSettingsDialog();
+            }
+        }, '.show-settings-dialog');
+
+        // adding handler for form switch from dialog
+        $(document).on({
+            change: function (element) {
+                PreviewOnHover.log("switch form");
+                var formid = $(element.target).children("option").filter(":selected").val();
+                var entityType  = $(element.target).attr("id").split("_")[1];
+                PreviewOnHover.setForm(formid, entityType);
+            }
+        }, '.preview-on-hover-dialog-form-selection');
+
+        // adding handler for Popover enable
+        $(document).on({
+            change: function (element) {
+                PreviewOnHover.log("switch checkbox");
+                var enablePreviewOnHover = ($(element.target).attr('checked') == "checked");
+                var entityType  = $(element.target).attr("id").split("_")[1];
+                PreviewOnHover.setEnablePreviewOnHover(entityType,enablePreviewOnHover);
+            }
+        }, '.preview-on-hover-dialog-form-checkbox');
 
     },
+    UI: {
+        showPopup: function (selector, RecordId, entityType) {
+            
+                    // check if entityMetadata already exists
+                    PreviewOnHover.getEntityMetadataFromCache(entityType)
+                        .then(function (entityMetadata) {
+                            return PreviewOnHover.buildEntityExpandQuery(entityMetadata);
+                        })
+                        .then(function (entityMetadata) {
 
-    showPopup: function (selector, RecordId, entityType) {
-
-        // check if entityMetadata already exists
-        PreviewOnHover.getEntityMetadataFromCache(entityType)
-            .then(function (entityMetadata) {
-                return PreviewOnHover.buildEntityExpandQuery(entityMetadata);
-            })
-            .then(function (entityMetadata) {
-
-                var query = entityMetadata.LogicalCollectionName + "(" + RecordId + ")?" + entityMetadata.queryexpand;
-                var url = PreviewOnHover.organizationURI + "/api/data/v8.0/" + query;
-
-                PreviewOnHover.ajax({
-                    url: url,
-                    headers: {
-                        'Accept': "application/json",
-                        'Content-Type': 'application/json; charset=utf-8',
-                        'OData-MaxVersion': "4.0",
-                        'OData-Version': "4.0",
-                        'Prefer': 'odata.include-annotations="*"'
-                    },
-                    method: 'GET'}).then(function(data){
-                        PreviewOnHover.log('retrieveDataAndShowPopUp - succes: ');
-                        PreviewOnHover.log(data);
-
-                        // show popover
-                        WebuiPopovers.show(selector, {
-                            content: (doT.template(entityMetadata.template))(data),
-                            cache: false,
-                            closeable: true,
-                            onHide: function ($element) {
-                                var pop = WebuiPopovers.getPop(selector);
-                                pop.destroy();
-                            }, // callback after hide
-                            width: 400
+                            // need to check if PrewviewOnHover is enabled
+                            if(entityMetadata.enablePreviewOnHover){
+                                var query = entityMetadata.LogicalCollectionName + "(" + RecordId + ")?" + entityMetadata.queryexpand;
+                                var url = PreviewOnHover.organizationURI + "/api/data/v8.0/" + query;
+                
+                                PreviewOnHover.ajax({
+                                    url: url,
+                                    headers: {
+                                        'Accept': "application/json",
+                                        'Content-Type': 'application/json; charset=utf-8',
+                                        'OData-MaxVersion': "4.0",
+                                        'OData-Version': "4.0",
+                                        'Prefer': 'odata.include-annotations="*"'
+                                    },
+                                    method: 'GET'}).then(function(data){
+                                        PreviewOnHover.log('retrieveDataAndShowPopUp - succes: ');
+                                        PreviewOnHover.log(data);
+                
+                                        // show popover
+                                        WebuiPopovers.show(selector, {
+                                            content: (doT.template(entityMetadata.template))(data),
+                                            cache: false,
+                                            closeable: true,
+                                            onHide: function ($element) {
+                                                var pop = WebuiPopovers.getPop(selector);
+                                                pop.destroy();
+                                            }, // callback after hide
+                                            width: 400
+                                        });
+                
+                                    });
+                                    /*,
+                                    error: function (data) {
+                                        PreviewOnHover.log('retrieveDataAndShowPopUp - error: ');
+                                        //alert(url);
+                                        PreviewOnHover.log(data);
+                                        $("#errorMessage").text(data.responseJSON.error.message);
+                                    }*/
+                            } else {
+                                PreviewOnHover.log("Preview on Hover is not enabled on this entity: " + entityMetadata.DisplayName)
+                            }
+            
                         });
+                },
+                buildSettingsDialog: function () {
+                    var dialog = new PreviewOnHover.UI.Dialog();
+   
+                    dialog.show();
+                },
+                Dialog: function () {
 
-                    });
-                    /*,
-                    error: function (data) {
-                        PreviewOnHover.log('retrieveDataAndShowPopUp - error: ');
-                        //alert(url);
-                        PreviewOnHover.log(data);
-                        $("#errorMessage").text(data.responseJSON.error.message);
-                    }*/
+                    this.show = function () {
+                        var $dialog = $("#preview-on-hover-dialog");
 
-            });
+                        // building content
+                        var $content = $dialog.find("#preview-on-hover-dialog-content");
+                        $content.empty();
+                        var $table = $("<table><thead><tr><th>Entity</th><th>Show Hover</th><th>Form</th></tr></thead><tbody></tbody></table>");
+                        var $tablebody = $table.find("tbody");
+
+                        PreviewOnHover.log(PreviewOnHover.Cache.database)
+
+                        PreviewOnHover.Cache.database.forEach(function(entityMetadata){
+                            var $tr = $("<tr/>");
+
+                            $tr.append("<td>"+entityMetadata.DisplayName+"</td>");
+                            var $checkbox = $("<input class='preview-on-hover-dialog-form-checkbox' id='checkbox_" + entityMetadata.entityType + "_" + (Math.floor(Math.random() * 1000000) + 1) + "' type='checkbox' />");
+                            if(entityMetadata.enablePreviewOnHover) $checkbox.attr('checked', true);
+                            $tr.append($("<td/>").append($checkbox));
+
+                            // building options
+                            if(entityMetadata.forms == undefined) $tr.append("Need to hover over entity to show up here")
+                            else if(entityMetadata.forms.length == 0) $tr.append("<span style='color:red'>No Quick View form, please create one</span>")
+                            else {
+                                var selectHTML = "<select class='preview-on-hover-dialog-form-selection' id='select_" + entityMetadata.entityType + "_" + (Math.floor(Math.random() * 1000000) + 1) + "'>";
+                                _.each(entityMetadata.forms, function (element, index, list) {
+                                    selectHTML += "<option value='" + element.formid + "' " + (element.formid == entityMetadata.formId ? "selected" : "") + ">" + element.name + "</option>";
+                                })
+                                selectHTML += "</select>";
+                                $tr.append($("<td/>").append(selectHTML));
+                            }
+                            $tablebody.append($tr);
+                        })
+                        $content.append($table);
+
+                        $content.append("<a href='javacript:void()' class='preview-on-hover-dialog-refresh'>Force Refresh</a>")
+    
+                        $dialog.fadeIn(250);
+                        $dialog.find("input").first().focus();
+
+                        var $dialogBg = $("#preview-on-hover-dialog-bg");
+                        $dialogBg.fadeIn(250);
+    
+                        $("#preview-on-hover-dialog-ok").unbind().click(
+                            function (event) {
+                                $dialog.fadeOut(250);
+                                $dialogBg.fadeOut(250);
+                            });
+                    }
+                } // end Dialog
     },
+
     Cache: {
         load: function () {
             // load from storage
@@ -149,7 +244,6 @@ var PreviewOnHover = {
             } else {
                 PreviewOnHover.Cache.database = [];
             }
-            PreviewOnHover.Cache.database = []; // --- HACK
         },
         purge: function () {
             PreviewOnHover.Cache.database = [];
@@ -171,7 +265,11 @@ var PreviewOnHover = {
 
             // update storage
             if (typeof (Storage) !== "undefined") {
-                localStorage.setItem("PreviewOnHoverDBCache", JSON.stringify(PreviewOnHover.Cache.database));
+                try {
+                    localStorage.setItem("PreviewOnHoverDBCache", JSON.stringify(PreviewOnHover.Cache.database));
+                } catch(err){
+                    console.log(err)
+                }
             }
 
             return entityMetadata;
@@ -189,7 +287,11 @@ var PreviewOnHover = {
 
             // update storage
             if (typeof (Storage) !== "undefined") {
-                localStorage.setItem("PreviewOnHoverDBCache", JSON.stringify(PreviewOnHover.Cache.database));
+                try {
+                    localStorage.setItem("PreviewOnHoverDBCache", JSON.stringify(PreviewOnHover.Cache.database));
+                } catch(err){
+                    console.log(err)
+                }
             }
         },
         get: function (entityType) {
@@ -208,15 +310,10 @@ var PreviewOnHover = {
 
 
             // get EntityCollectionName and all Attributes to use in querying for data
-            PreviewOnHover.retrieveEntityAndAttributeMetadata(entityType)
-                .then(function () {
+            await PreviewOnHover.retrieveEntityAndAttributeMetadata(entityType);
                     //  find the form metatdata and add it to the Cache
-                    return PreviewOnHover.retrieveFormMetadata(entityType)
-                }).then(function () {
-                    return PreviewOnHover.Cache.get(entityType);  // returning the entityMetadata
-                });;
-
-
+            await PreviewOnHover.retrieveFormMetadata(entityType);
+            return PreviewOnHover.Cache.get(entityType);  // returning the entityMetadata
         } else {
             return entityMetadata;
         }
@@ -295,6 +392,7 @@ var PreviewOnHover = {
             PreviewOnHover.log(data);
 
             PreviewOnHover.Cache.add(entityType, {
+                enablePreviewOnHover: true,
                 DisplayName: data.SchemaName,
                 LogicalCollectionName: data.EntitySetName,
                 PrimaryIdAttribute: data.PrimaryIdAttribute,
@@ -370,7 +468,7 @@ var PreviewOnHover = {
                 template:
                 "<p><span class='pop-over-title'>" + (entityMetadata.DisplayName).toUpperCase() + ": {{=it." + entityMetadata.PrimaryNameAttribute + "}}</span>"
                 + "<h5>" + "No Quick View Form - please create one." + "</h5>"
-                + "<a href='javascript:void(0)' class='onhover-refresh' title='refresh cache'>Refresh</a></br>"
+                + "<a href='javascript:void(0)' class='show-settings-dialog' title='Show Preview on Hover Settings'>Settings</a>"
                 + "</p>"
             });
             return;
@@ -405,6 +503,18 @@ var PreviewOnHover = {
         });
     },
 
+    setEnablePreviewOnHover: function(entityType, enabled){
+        var entityMetadata = PreviewOnHover.Cache.get(entityType);
+        if (!entityMetadata) {
+            PreviewOnHover.log("retrieveFormMetadata(" + entityType + ") - ERROR - MetaData not found in Cache");
+            return;
+        } else {
+            PreviewOnHover.Cache.update(entityType, {
+                enablePreviewOnHover: enabled
+            });
+        }
+    },
+
     setForm: async function (formid, entityType) {
         var entityMetadata = PreviewOnHover.Cache.get(entityType);
         
@@ -421,7 +531,7 @@ var PreviewOnHover = {
 
                 var formHTML = await PreviewOnHover.formEngine.buildTemplate(quickviewJSON, entityType);
                 // building form options
-                var formOptions = "<select class='onhover-form-selection' id='" + entityType + "_" + (Math.floor(Math.random() * 1000000) + 1) + "'>";
+                var formOptions = "<select class='onhover-form-selection' id='select_" + entityType + "_" + (Math.floor(Math.random() * 1000000) + 1) + "'>";
                 _.each(entityMetadata.forms, function (element, index, list) {
                     formOptions += "<option value='" + element.formid + "' " + (element.formid == formid ? "selected" : "") + ">" + element.name + "</option>";
                 })
@@ -439,7 +549,7 @@ var PreviewOnHover = {
                     + formHTML
                     + "<span class='pop-over-form-options'>"
                     + formOptions
-                    + "<a href='javascript:void(0)' class='onhover-refresh' title='refresh cache'>Refresh</a></br>"
+                    + "<a href='javascript:void(0)' class='show-settings-dialog' title='Show Preview on Hover Settings'>Settings</a>"
                     + "</span>"
                     + "</p>"
 
