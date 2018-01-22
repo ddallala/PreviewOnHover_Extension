@@ -7,11 +7,16 @@
 /*global Xrm*/
 
 var PreviewOnHover = {
-    debug: true,
+    version: "0.6",
+    debug: false,
     log: function () {
-        if (PreviewOnHover.debug) console.log.apply(this, arguments);
+        if (PreviewOnHover.debug) {
+            console.log(">> PreviewOnHover");
+            console.log.apply(this, arguments);
+        }
     },
     initialize: function (organizationURI) {
+        PreviewOnHover.log("...initializing");
         PreviewOnHover.organizationURI = organizationURI;
         PreviewOnHover.Cache.load();
 
@@ -20,9 +25,8 @@ var PreviewOnHover = {
         $("body").append($('<div id="preview-on-hover-dialog"><h1>Preview On Hover Settings</h1><p>Select the forms to show on each Entity</p><div id="preview-on-hover-dialog-content"></div><div style="clear:both"></div><div id="preview-on-hover-dialog-button-container"><button class="preview-on-hover-dialog-button" id="preview-on-hover-dialog-ok">OK</button></div></div>'));
 
         // HANDLER for SIMPLE CONTROL LOOKUP
-        $(document).on({
-            mouseenter: function (e) {
-
+        $('.ms-crm-Lookup-Item').on('mouseenter', function (e) {
+                PreviewOnHover.log(">> Lookup: MouseEnter <<")
                 // get the target
                 var target = $(e.currentTarget);
                 var selector = "#" + $(e.currentTarget).attr("id");
@@ -44,14 +48,13 @@ var PreviewOnHover = {
 
                 }
 
-            },
-            mouseleave: function (e) {
+            });
+         //   mouseleave: function (e) {
                 //stuff to do on mouse leave
                 // PreviewOnHover.log("mouseleave")
                 //   WebuiPopovers.hide($(e.target));
                 //   WebuiPopovers.updateContent($(e.target),'some html or text');
-            }
-        }, '.ms-crm-Lookup-Item');
+           // }
 
         // HANDLER FOR SUB-GRID LOOKUP
         /*
@@ -80,6 +83,7 @@ var PreviewOnHover = {
         // adding handler for select new form
         $(document).on({
             change: function (element) {
+                PreviewOnHover.log(">> Form: change <<");
                 var formid = $(element.target).children("option").filter(":selected").val();
                 var entityType  = $(element.target).attr("id").split("_")[1];
                 PreviewOnHover.setForm(formid, entityType);
@@ -88,7 +92,7 @@ var PreviewOnHover = {
 
         $(document).on({
             click: function (element) {
-                PreviewOnHover.log("---Deleting local cache--");
+                PreviewOnHover.log(">> Delete Local Cache: click <<");
                 PreviewOnHover.log(PreviewOnHover.Cache);
                 PreviewOnHover.Cache.purge();
                 PreviewOnHover.log(PreviewOnHover.Cache);
@@ -99,6 +103,7 @@ var PreviewOnHover = {
         // adding handler to launch settings
         $(document).on({
             click: function (element) {
+                PreviewOnHover.log(">> Launch Settings: click <<");
                 PreviewOnHover.UI.buildSettingsDialog();
             }
         }, '.show-settings-dialog');
@@ -106,7 +111,7 @@ var PreviewOnHover = {
         // adding handler for form switch from dialog
         $(document).on({
             change: function (element) {
-                PreviewOnHover.log("switch form");
+                PreviewOnHover.log(">> Form: change <<");
                 var formid = $(element.target).children("option").filter(":selected").val();
                 var entityType  = $(element.target).attr("id").split("_")[1];
                 PreviewOnHover.setForm(formid, entityType);
@@ -116,7 +121,7 @@ var PreviewOnHover = {
         // adding handler for Popover enable
         $(document).on({
             change: function (element) {
-                PreviewOnHover.log("switch checkbox");
+                PreviewOnHover.log(">> Checkbox: change <<");
                 var enablePreviewOnHover = ($(element.target).attr('checked') == "checked");
                 var entityType  = $(element.target).attr("id").split("_")[1];
                 PreviewOnHover.setEnablePreviewOnHover(entityType,enablePreviewOnHover);
@@ -135,7 +140,7 @@ var PreviewOnHover = {
                         .then(function (entityMetadata) {
 
                             // need to check if PrewviewOnHover is enabled
-                            if(entityMetadata.enablePreviewOnHover){
+                            if(!entityMetadata.disablePreviewOnHover){
                                 var query = entityMetadata.LogicalCollectionName + "(" + RecordId + ")?" + entityMetadata.queryexpand;
                                 var url = PreviewOnHover.organizationURI + "/api/data/v8.0/" + query;
                 
@@ -201,7 +206,7 @@ var PreviewOnHover = {
 
                             $tr.append("<td>"+entityMetadata.DisplayName+"</td>");
                             var $checkbox = $("<input class='preview-on-hover-dialog-form-checkbox' id='checkbox_" + entityMetadata.entityType + "_" + (Math.floor(Math.random() * 1000000) + 1) + "' type='checkbox' />");
-                            if(entityMetadata.enablePreviewOnHover) $checkbox.attr('checked', true);
+                            if(!entityMetadata.disablePreviewOnHover) $checkbox.attr('checked', true);
                             $tr.append($("<td/>").append($checkbox));
 
                             // building options
@@ -264,13 +269,7 @@ var PreviewOnHover = {
             }
 
             // update storage
-            if (typeof (Storage) !== "undefined") {
-                try {
-                    localStorage.setItem("PreviewOnHoverDBCache", JSON.stringify(PreviewOnHover.Cache.database));
-                } catch(err){
-                    console.log(err)
-                }
-            }
+            this._writeToStorage();
 
             return entityMetadata;
         },
@@ -286,16 +285,25 @@ var PreviewOnHover = {
             }
 
             // update storage
-            if (typeof (Storage) !== "undefined") {
-                try {
-                    localStorage.setItem("PreviewOnHoverDBCache", JSON.stringify(PreviewOnHover.Cache.database));
-                } catch(err){
-                    console.log(err)
-                }
-            }
+            this._writeToStorage();
+
         },
         get: function (entityType) {
             return _.findWhere(this.database, { entityType: entityType });
+        },
+        _writeToStorage: function(){
+            PreviewOnHover.log("WRITING TO STORAGE")
+            // update storage
+            if (typeof (Storage) !== "undefined") {
+                try {
+                    localStorage.removeItem("PreviewOnHoverDBCache");
+                    localStorage.setItem("PreviewOnHoverDBCache", JSON.stringify(PreviewOnHover.Cache.database));
+                    PreviewOnHover.log("Successfully saved to localStorag")
+                } catch(err){
+                    PreviewOnHover.error("Problem when saving to localStorate")
+                    PreviewOnHover.log(err)
+                }
+            }
         }
     },
 
@@ -392,7 +400,7 @@ var PreviewOnHover = {
             PreviewOnHover.log(data);
 
             PreviewOnHover.Cache.add(entityType, {
-                enablePreviewOnHover: true,
+                disablePreviewOnHover: false,
                 DisplayName: data.SchemaName,
                 LogicalCollectionName: data.EntitySetName,
                 PrimaryIdAttribute: data.PrimaryIdAttribute,
@@ -510,7 +518,7 @@ var PreviewOnHover = {
             return;
         } else {
             PreviewOnHover.Cache.update(entityType, {
-                enablePreviewOnHover: enabled
+                disablePreviewOnHover: !enabled
             });
         }
     },
@@ -829,7 +837,7 @@ var PreviewOnHover = {
                     return result;
                 }
             } catch(err){
-                console.log(err)
+                PreviewOnHover.log(err)
             }
         }
 
@@ -863,11 +871,20 @@ var PreviewOnHover = {
 };
 
 $(document).ready(function () {
-    console.log("=======FORM SCRIPT========");
-    try {
-        PreviewOnHover.initialize(Xrm.Page.context.getClientUrl());
-    } catch (e) {
-        console.log("can't show pop-over");
-        console.log(e)
-    }
+
+    // Polling to wait for document to be ready
+    var interval = setInterval(function() {
+        if(document.readyState === 'complete') {
+            clearInterval(interval);
+            try {
+                PreviewOnHover.log("=======FORM SCRIPT========: " + PreviewOnHover.version);
+                PreviewOnHover.initialize(Xrm.Page.context.getClientUrl());
+            } catch (e) {
+                console.log("can't show pop-over");
+                console.log(e)
+            }
+            done();
+        }    
+    }, 100);
+
 });
