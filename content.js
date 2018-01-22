@@ -1,5 +1,5 @@
 (function () {
-    console.log("===============IN CONTENT 2===============")
+    //console.log("===============IN CONTENT 2===============")
     var cssRef = document.createElement('link');
     cssRef.setAttribute('rel', 'stylesheet');
     cssRef.setAttribute('type', 'text/css');
@@ -14,7 +14,7 @@
 
     // ADDING CONTENT TO ENTITY FORMS
     if (formBody && formBody.length > 0) {
-        console.log("---------in FORM----------");
+        //console.log("---------in FORM----------");
 
         // underscore
         var underscoreTag = document.createElement('script');
